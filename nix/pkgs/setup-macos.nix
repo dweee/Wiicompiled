@@ -26,7 +26,8 @@ stdenv.mkDerivation rec {
     mkdir -p $share/Launcher/macos $out/bin
 
     cp -a runtime aurora-main projects $share/
-    cp Launcher/local-build-macos.command $share/Launcher/local-build-macos.command
+    # Both upstream entry points source build-cache.sh before parsing --help.
+    cp Launcher/local-build-macos.command Launcher/build-cache.sh Launcher/Directory.Build.props $share/Launcher/
     cp Launcher/macos/extract-disc.command $share/Launcher/macos/extract-disc.command
     cp Launcher/macos/publish-app.command $share/Launcher/macos/publish-app.command
     chmod +x $share/Launcher/local-build-macos.command \
@@ -43,6 +44,17 @@ stdenv.mkDerivation rec {
     chmod +x $out/bin/wiicompiled-setup
 
     runHook postInstall
+  '';
+
+  doInstallCheck = true;
+  installCheckPhase = ''
+    runHook preInstallCheck
+    share=$out/share/wiicompiled
+    test -f "$share/Launcher/build-cache.sh"
+    grep -F '<Version>${version}</Version>' "$share/Launcher/Directory.Build.props"
+    ${stdenv.shell} "$share/Launcher/local-build-macos.command" --help
+    ${stdenv.shell} "$share/Launcher/macos/extract-disc.command" --help
+    runHook postInstallCheck
   '';
 
   wrapper = writeShellScript "wiicompiled-setup-macos-wrapper" ''
@@ -66,6 +78,8 @@ stdenv.mkDerivation rec {
           cp -a "$bundle/$dir" "$cache/$dir"
         done
         cp "$bundle/Launcher/local-build-macos.command" "$cache/Launcher/local-build-macos.command"
+        cp "$bundle/Launcher/build-cache.sh" "$cache/Launcher/build-cache.sh"
+        cp "$bundle/Launcher/Directory.Build.props" "$cache/Launcher/Directory.Build.props"
         cp "$bundle/Launcher/macos/extract-disc.command" "$cache/Launcher/macos/extract-disc.command"
         cp "$bundle/Launcher/macos/publish-app.command" "$cache/Launcher/macos/publish-app.command"
         cp "$bundle/.bundle-version" "$cache/.bundle-version"
