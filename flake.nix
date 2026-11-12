@@ -35,7 +35,6 @@
             wiicompiled-translator
             wiicompiled-native-prebuilt
             wiicompiled-setup
-            wiicompiled-nodtool
             ;
           default = pkgs.wiicompiled-translator;
         }
