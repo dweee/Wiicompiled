@@ -313,16 +313,31 @@ else()
     message(STATUS "RetroRewind target disabled (run translate-mod and emit-build-shards)")
 endif()
 
-# Windows and Linux x86_64 share the x86-64-v3 floor that the CPU baseline
-# object above checks. AArch64 builds are compiled locally for the host that
-# will run them, so both Linux and Apple Silicon use the compiler's native CPU
-# tuning rather than leaving target-specific performance on the table.
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|X86_64)$")
+# Named ISA only — never -mcpu=native (Nix strips that; the store path would
+# otherwise depend on the builder). Empty MKW_BASELINE_ARCH uses a portable
+# floor: x86-64-v3 on x86_64, apple-m1 on Apple Silicon. Pin a newer chip
+# from Nix with -DMKW_BASELINE_ARCH=apple-m4 (etc).
+set(MKW_BASELINE_ARCH "" CACHE STRING
+    "Host CPU/ISA name: -march on x86_64, -mcpu on aarch64. Empty uses a portable floor.")
+if(MKW_BASELINE_ARCH STREQUAL "native")
+    message(FATAL_ERROR
+        "MKW_BASELINE_ARCH=native is not supported; pass a named CPU (apple-m4, x86-64-v3, …)")
+endif()
+if(MKW_BASELINE_ARCH)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|X86_64)$")
+        set(MKW_BASELINE_ARCH_FLAG -march=${MKW_BASELINE_ARCH})
+    else()
+        set(MKW_BASELINE_ARCH_FLAG -mcpu=${MKW_BASELINE_ARCH})
+    endif()
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|X86_64)$")
     set(MKW_BASELINE_ARCH_FLAG -march=x86-64-v3)
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
-    set(MKW_BASELINE_ARCH_FLAG -mcpu=native)
+elseif(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+    set(MKW_BASELINE_ARCH_FLAG -mcpu=apple-m1)
 else()
     set(MKW_BASELINE_ARCH_FLAG "")
+endif()
+if(MKW_BASELINE_ARCH_FLAG)
+    message(STATUS "Host codegen: ${MKW_BASELINE_ARCH_FLAG}")
 endif()
 
 set(MKW_ALL_BUILD_TARGETS
