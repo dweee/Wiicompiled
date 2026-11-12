@@ -10,7 +10,7 @@ buildDotnetModule {
   inherit src;
 
   projectFile = "translator/src/Translator.Cli/Translator.Cli.csproj";
-  nugetDeps = ./nuget-deps.nix;
+  nugetDeps = ./nuget-deps.json;
   dotnet-sdk = dotnetCorePackages.sdk_8_0;
   dotnet-runtime = dotnetCorePackages.runtime_8_0;
   executables = ["Translator.Cli"];

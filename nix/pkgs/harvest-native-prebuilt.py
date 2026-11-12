@@ -9,6 +9,7 @@ tokens. Shared-library harvest is optional (Linux/macOS vendor SDL statically).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -352,6 +353,32 @@ def main() -> None:
     if not cryptopp.is_file():
         fail(f"harvested package is missing {cryptopp}")
 
+    # Follow the frozen upstream Prepare-NativePrebuilt.sh TLS export contract.
+    # Keep these archives out of Aurora's aggregate list: NativePrebuilt.cmake
+    # gives them their own interface and checks the exact Mbed TLS pin.
+    mbedtls_refs: list[str] = []
+    tls_targets = export / "mbedtls.txt"
+    if not tls_targets.is_file():
+        fail(f"missing Mbed TLS export targets: {tls_targets}")
+    for line in tls_targets.read_text().splitlines():
+        if not line.strip():
+            continue
+        fields = line.split("|")
+        if len(fields) != 2:
+            fail(f"malformed Mbed TLS export target: {line}")
+        name, linkerfile = fields
+        ref = linker_to_ref.get(str(real(Path(linkerfile))))
+        if not ref:
+            fail(f"Mbed TLS archive was not harvested: {name} ({linkerfile})")
+        mbedtls_refs.append(ref)
+    if len(mbedtls_refs) < 3:
+        fail("expected at least three harvested Mbed TLS archives")
+    tls_source = Path(meta.get("mbedtls_source_dir", ""))
+    if not (tls_source / "include" / "mbedtls").is_dir():
+        fail(f"missing Mbed TLS headers: {tls_source}")
+    shutil.copytree(tls_source / "include", package / "include" / "mbedtls")
+    tls_fingerprint = hashlib.sha256((runtime / "cmake" / "MbedTLSPin.cmake").read_bytes()).hexdigest()
+
     package_includes = include_directories(includes, convert)
     package_defines: list[str] = []
     for item in defines:
@@ -375,6 +402,8 @@ def main() -> None:
         if not absolute.is_absolute():
             absolute = build / item
         key = str(real(absolute) if absolute.exists() else absolute)
+        if linker_to_ref.get(key) in mbedtls_refs:
+            continue
         if key in linker_to_ref:
             package_link.append(linker_to_ref[key])
             continue
@@ -423,6 +452,9 @@ def main() -> None:
         format_cmake_block("MKW_NP_COMPILE_DEFINITIONS", package_defines).rstrip(),
         format_cmake_block("MKW_NP_COMPILE_OPTIONS", package_compile).rstrip(),
         format_cmake_block("MKW_NP_LINK_LIBRARIES", package_link).rstrip(),
+        format_cmake_block("MKW_NP_MBEDTLS_LIBRARIES", mbedtls_refs).rstrip(),
+        'set(MKW_NP_MBEDTLS_INCLUDE_DIR "@PKG@/include/mbedtls")',
+        f'set(MKW_NP_MBEDTLS_FINGERPRINT "{tls_fingerprint}")',
         format_cmake_block(
             "MKW_NP_AURORA_TARGETS",
             ["aurora::gx", "aurora::pad", "aurora::si", "aurora::vi", "aurora::mtx"],
@@ -434,6 +466,18 @@ def main() -> None:
         "# Shared third-party libraries keep imported SHARED targets so that",
         "# $<TARGET_RUNTIME_DLLS> still copies them next to the game executable.",
     ]
+    if meta.get("runtime_fingerprint"):
+        runtime_target = targets.get("mkw_runtime")
+        if runtime_target is None:
+            fail("configured runtime archive target was not exported")
+        runtime_ref = linker_to_ref.get(str(real(Path(runtime_target["linker"]))))
+        if not runtime_ref or not runtime_ref.startswith("@PKG@/lib/"):
+            fail("configured runtime archive was not harvested")
+        generated.extend([
+            f'set(MKW_NP_RUNTIME_ARCHIVE "{cmake_quote(runtime_ref)}")',
+            f'set(MKW_NP_RUNTIME_FINGERPRINT "{cmake_quote(meta["runtime_fingerprint"])}")',
+            f'set(MKW_NP_RUNTIME_CPU_PROFILE "{cmake_quote(meta.get("runtime_cpu_profile", ""))}")',
+        ])
     for imported, runtime_rel, implib_rel in shared_imports:
         generated.append(f"add_library({imported} SHARED IMPORTED GLOBAL)")
         generated.append(f"set_target_properties({imported} PROPERTIES")
